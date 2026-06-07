@@ -29,9 +29,9 @@ Recommended Vercel settings:
 
 - Framework Preset: `Next.js`
 - Root Directory: `frontend`
-- Install Command: `npm ci`
+- Install Command: `npm install`
 - Build Command: `npm run build`
 - Output Directory: leave empty / framework default
 - Node.js Version: `20.x` or newer
 
-The included `vercel.json` pins the framework, install command, and build command for consistent deployments.
+The included `vercel.json` pins the framework, install command, and build command for consistent deployments. If Vercel project settings override the install command, set it to `npm install`.
