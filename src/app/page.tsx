@@ -131,16 +131,17 @@ function EditorPageContent() {
         return;
       }
       
-      const newNodes: Node[] = tables.map(table => ({
-        id: table.name,
-        type: 'table',
-        position: { x: 0, y: 0 }, 
-        data: table,
-      }));
-
       const newEdges: Edge[] = [];
+      const incomingColumnsByTable = new Map<string, Set<string>>();
+
       tables.forEach(table => {
         table.foreignKeys.forEach((fk) => {
+          if (!incomingColumnsByTable.has(fk.toTable)) {
+            incomingColumnsByTable.set(fk.toTable, new Set());
+          }
+
+          incomingColumnsByTable.get(fk.toTable)?.add(fk.toColumn);
+
           newEdges.push({
             id: `${table.name}-${fk.fromColumn}-${fk.toTable}-${fk.toColumn}`,
             source: table.name,
@@ -160,6 +161,16 @@ function EditorPageContent() {
           });
         });
       });
+
+      const newNodes: Node[] = tables.map(table => ({
+        id: table.name,
+        type: 'table',
+        position: { x: 0, y: 0 }, 
+        data: {
+          ...table,
+          incomingColumns: Array.from(incomingColumnsByTable.get(table.name) || []),
+        },
+      }));
 
       // Run ELK layout in web worker
       const laidOutNodes = await layout(newNodes, newEdges);

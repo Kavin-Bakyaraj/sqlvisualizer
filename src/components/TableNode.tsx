@@ -1,9 +1,10 @@
 import { Handle, Position } from '@xyflow/react';
 import { TableDefinition } from '@/lib/sql-parser';
-import { getColumnHandleY, getTableNodeSize } from '@/lib/diagram-geometry';
+import { getTableNodeSize } from '@/lib/diagram-geometry';
 import { Key, Link2 } from 'lucide-react';
 
 type TableNodeData = TableDefinition & {
+  incomingColumns?: string[];
   isDimmed?: boolean;
   matchedColumns?: string[];
 };
@@ -11,6 +12,15 @@ type TableNodeData = TableDefinition & {
 export default function TableNode({ data }: { data: TableNodeData }) {
   const size = getTableNodeSize(data);
   const matchedColumns = new Set(data.matchedColumns || []);
+  const incomingColumns = new Set(data.incomingColumns || []);
+  const handleStyle = {
+    width: 8,
+    height: 8,
+    background: '#6CA7FF',
+    border: 'none',
+    top: '50%',
+    transform: 'translateY(-50%)',
+  };
 
   return (
     <div
@@ -29,7 +39,7 @@ export default function TableNode({ data }: { data: TableNodeData }) {
           <div
             key={col.name}
             title={col.references ? `References ${col.references.table}.${col.references.column}` : undefined}
-            className={`flex items-center justify-between px-4 py-1.5 hover:bg-gray-50 text-xs ${matchedColumns.has(col.name) ? 'bg-yellow-50' : ''}`}
+            className={`relative flex items-center justify-between px-4 py-1.5 hover:bg-gray-50 text-xs ${matchedColumns.has(col.name) ? 'bg-yellow-50' : ''}`}
           >
             <div className="flex items-center gap-2">
               {col.isPrimaryKey ? (
@@ -51,21 +61,22 @@ export default function TableNode({ data }: { data: TableNodeData }) {
               <span className="text-gray-400 font-mono text-[10px] uppercase">{col.type}</span>
             </div>
             
-            {/* Handles for connections */}
-            <Handle
-              type="target"
-              position={Position.Left}
-              id={`${col.name}-in`}
-              className="w-1.5 h-1.5 bg-[#6CA7FF] border-none"
-              style={{ top: getColumnHandleY(data, col.name) }}
-            />
-            <Handle
-              type="source"
-              position={Position.Right}
-              id={`${col.name}-out`}
-              className="w-1.5 h-1.5 bg-[#6CA7FF] border-none"
-              style={{ top: getColumnHandleY(data, col.name) }}
-            />
+            {incomingColumns.has(col.name) && (
+              <Handle
+                type="target"
+                position={Position.Left}
+                id={`${col.name}-in`}
+                style={handleStyle}
+              />
+            )}
+            {col.isForeignKey && (
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={`${col.name}-out`}
+                style={handleStyle}
+              />
+            )}
           </div>
         ))}
       </div>
