@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Edge, Node } from "@xyflow/react";
 import { performLayout } from "@/lib/layout.worker";
+import type { LayoutSettings } from "@/lib/layout.worker";
 
 const LAYOUT_TIMEOUT_MS = 10000;
 
@@ -16,27 +17,52 @@ export function useLayout() {
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef(0);
   const [isLayouting, setIsLayouting] = useState(false);
+  const isWorkerActiveRef = useRef(false);
 
   useEffect(() => {
     try {
-      workerRef.current = new Worker(
+      const worker = new Worker(
         new URL("../lib/layout.worker.ts", import.meta.url),
         { type: "module" },
       );
+      workerRef.current = worker;
+
+      // Ping the worker to check if it compiles and runs correctly
+      const handlePingResponse = (e: MessageEvent) => {
+        if (e.data && e.data.type === 'pong') {
+          isWorkerActiveRef.current = true;
+          worker.removeEventListener('message', handlePingResponse);
+        }
+      };
+      worker.addEventListener('message', handlePingResponse);
+      worker.postMessage({ type: 'ping' });
+
+      // Fallback in 3000ms if worker doesn't respond (like in dev bundle errors)
+      const pingTimeout = window.setTimeout(() => {
+        if (!isWorkerActiveRef.current) {
+          console.warn("Layout worker failed to respond to ping. Falling back to main thread.");
+          worker.terminate();
+          workerRef.current = null;
+        }
+      }, 3000);
+
+      return () => {
+        window.clearTimeout(pingTimeout);
+        worker.removeEventListener('message', handlePingResponse);
+        worker.terminate();
+        workerRef.current = null;
+        isWorkerActiveRef.current = false;
+      };
     } catch (error) {
       console.warn("Layout worker unavailable, using main thread layout:", error);
+      isWorkerActiveRef.current = false;
     }
-
-    return () => {
-      workerRef.current?.terminate();
-      workerRef.current = null;
-    };
   }, []);
 
-  const layoutInWorker = useCallback((nodes: Node[], edges: Edge[]) => {
+  const layoutInWorker = useCallback((nodes: Node[], edges: Edge[], settings: LayoutSettings) => {
     const worker = workerRef.current;
 
-    if (!worker) {
+    if (!worker || !isWorkerActiveRef.current) {
       return null;
     }
 
@@ -83,25 +109,25 @@ export function useLayout() {
       worker.addEventListener("message", handleMessage);
       worker.addEventListener("error", handleError);
       worker.addEventListener("messageerror", handleMessageError);
-      worker.postMessage({ id, nodes, edges });
+      worker.postMessage({ id, nodes, edges, settings });
     });
   }, []);
 
   const layout = useCallback(
-    async (nodes: Node[], edges: Edge[]) => {
+    async (nodes: Node[], edges: Edge[], settings: LayoutSettings) => {
       setIsLayouting(true);
 
       try {
-        const workerResult = layoutInWorker(nodes, edges);
+        const workerResult = layoutInWorker(nodes, edges, settings);
 
         if (workerResult) {
           return await workerResult;
         }
 
-        return await performLayout(nodes, edges);
+        return await performLayout(nodes, edges, settings);
       } catch (error) {
         console.warn("Layout worker failed, using main thread layout:", error);
-        return performLayout(nodes, edges);
+        return performLayout(nodes, edges, settings);
       } finally {
         setIsLayouting(false);
       }
@@ -111,3 +137,4 @@ export function useLayout() {
 
   return { layout, isLayouting };
 }
+
