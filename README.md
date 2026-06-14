@@ -4,7 +4,7 @@ A high-performance, zero-login tool that instantly converts raw SQL Data Definit
 
 Built with a "CEO-level" aesthetic, this tool helps developers, database administrators, and architects visualize complex database schemas effortlessly.
 
-![SQL Visualizer](assets/screenshot.png)
+
 
 ## ✨ Key Features
 
