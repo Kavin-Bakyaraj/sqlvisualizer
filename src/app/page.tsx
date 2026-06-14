@@ -336,9 +336,16 @@ function EditorPageContent() {
       <div className="w-[400px] flex flex-col border-r border-gray-200 dark:border-zinc-800 bg-white dark:bg-[#0f0f12] z-10 shadow-lg relative transition-colors duration-200">
         <div className="p-4 border-b border-gray-100 dark:border-zinc-800/60 space-y-3">
           <div className="flex items-start justify-between gap-3">
-            <div>
-              <h1 className="font-bold text-gray-800 dark:text-zinc-100">SQL Visualizer</h1>
-              <p className="text-xs text-gray-400 dark:text-zinc-500">Zero-login ER diagrams</p>
+            <div className="flex items-center gap-3">
+              <img 
+                src="/logo.png" 
+                alt="SQL Visualizer Logo" 
+                className="w-10 h-10 rounded-lg shadow-sm border border-gray-200 dark:border-zinc-800"
+              />
+              <div>
+                <h1 className="font-bold text-gray-800 dark:text-zinc-100 text-base leading-tight">SQL Visualizer</h1>
+                <p className="text-[11px] text-gray-400 dark:text-zinc-500">Zero-login ER diagrams</p>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <button

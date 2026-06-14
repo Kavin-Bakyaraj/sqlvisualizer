@@ -1,37 +1,58 @@
 # SQL Visualizer
 
-Generate searchable ER diagrams from PostgreSQL-style SQL schemas. Export complete diagrams as PNG, SVG, or PDF without cropping.
+A high-performance, zero-login tool that instantly converts raw SQL Data Definition Language (DDL) into interactive, beautifully rendered Entity-Relationship (ER) diagrams. 
 
-## Local Development
+Built with a "CEO-level" aesthetic, this tool helps developers, database administrators, and architects visualize complex database schemas effortlessly.
 
-```bash
-npm ci
-npm run dev
-```
+![SQL Visualizer](assets/screenshot.png)
 
-Open `http://localhost:3000`.
+## ✨ Key Features
 
-## Validation
+* **Instant Visualization:** Paste your `CREATE TABLE` SQL statements and instantly see a generated ER diagram. No login or database connection required.
+* **Rich IDE Experience:** Integrated **Monaco Editor** provides SQL syntax highlighting, line numbers, bracket matching, and a premium coding environment.
+* **Interactive Canvas:** 
+  * Hover over tables or columns to trace foreign key relationships while dimming unconnected nodes.
+  * Fast client-side search instantly dims unrelated tables.
+* **Smart Layouts:** Powered by **ELK.js** running in a Web Worker, allowing for complex layout algorithms (Layered Flow, Force-Directed, Radial, Tree) without blocking the UI.
+* **Zero-Backend Sharing:** The current schema is continuously encoded into a Base64 URL hash, enabling instant sharing with colleagues via a simple link.
+* **Auto-Save:** Built-in `localStorage` debounced saving prevents accidental data loss if the tab is closed.
+* **Premium UI/UX:** Fully responsive, modern design built with Tailwind CSS v4, featuring seamless Dark & Light mode toggling.
+* **Export:** Download high-quality, vector-perfect SVG, PDF, or PNG files of your diagrams.
 
-```bash
-npm run lint
-npx tsc -p tsconfig.json --noEmit
-npm run build
-```
+## 🛠️ Technology Stack
 
-If `npm run build` fails locally with an `EPERM` error inside `.next`, stop the running dev server and run the build again.
+* **Frontend Framework:** Next.js (React)
+* **Canvas Engine:** React Flow (`@xyflow/react`)
+* **Layout Engine:** ELK.js (Web Worker)
+* **Code Editor:** Monaco Editor (`@monaco-editor/react`)
+* **SQL Parser:** `pgsql-ast-parser`
+* **Styling:** Tailwind CSS v4
 
-## Deploy to Vercel
+## 🚀 Getting Started
 
-This app is a Next.js project. Deploy the `frontend` directory as the Vercel project root.
+### Prerequisites
+* Node.js (v20+ recommended)
+* npm, yarn, or pnpm
 
-Recommended Vercel settings:
+### Installation
 
-- Framework Preset: `Next.js`
-- Root Directory: `frontend`
-- Install Command: `npm install`
-- Build Command: `npm run build`
-- Output Directory: leave empty / framework default
-- Node.js Version: `20.x` or newer
+1. Clone the repository and navigate to the frontend directory:
+   ```bash
+   cd frontend
+   ```
 
-The included `vercel.json` pins the framework, install command, and build command for consistent deployments. If Vercel project settings override the install command, set it to `npm install`.
+2. Install the dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Start the development server:
+   ```bash
+   npm run dev
+   ```
+
+4. Open your browser and navigate to `http://localhost:3000`.
+
+## 🤝 Roadmap
+* **Smart Domain Grouping:** AI-powered heuristic clustering to automatically group tables into domains (e.g., Auth, Billing) using an LLM backend.
+* **Multi-Dialect Support:** Expanded support for MySQL, SQLite, and SQL Server syntax.
