@@ -18,7 +18,7 @@ function estimateTextWidth(text: string, characterWidth: number): number {
 }
 
 export function getTableNodeSize(table: TableDefinition): DiagramNodeSize {
-  const titleWidth = estimateTextWidth(table.name, 8) + NODE_HORIZONTAL_PADDING;
+  const titleWidth = estimateTextWidth(table.name, 9) + NODE_HORIZONTAL_PADDING + 80;
   const columnWidth = table.columns.reduce((maxWidth, column) => {
     const nameWidth = estimateTextWidth(column.name, 7);
     const typeWidth = estimateTextWidth(column.type, 6);

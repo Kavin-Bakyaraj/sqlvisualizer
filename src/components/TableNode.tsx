@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import { TableDefinition } from '@/lib/sql-parser';
 import { getTableNodeSize } from '@/lib/diagram-geometry';
@@ -9,10 +10,10 @@ type TableNodeData = TableDefinition & {
   matchedColumns?: string[];
 };
 
-export default function TableNode({ data }: { data: TableNodeData }) {
-  const size = getTableNodeSize(data);
-  const matchedColumns = new Set(data.matchedColumns || []);
-  const incomingColumns = new Set(data.incomingColumns || []);
+export default memo(function TableNode({ data }: { data: TableNodeData }) {
+  const size = useMemo(() => getTableNodeSize(data), [data]);
+  const matchedColumns = useMemo(() => new Set(data.matchedColumns || []), [data.matchedColumns]);
+  const incomingColumns = useMemo(() => new Set(data.incomingColumns || []), [data.incomingColumns]);
   const handleStyle = {
     width: 8,
     height: 8,
@@ -24,8 +25,8 @@ export default function TableNode({ data }: { data: TableNodeData }) {
 
   return (
     <div
-      className={`bg-white dark:bg-zinc-900 border shadow-md rounded-lg font-sans transition-opacity ${data.isDimmed ? 'opacity-25' : 'opacity-100'} border-gray-200 dark:border-zinc-800`}
-      style={{ width: size.width }}
+      className={`bg-white dark:bg-zinc-900 border shadow-md rounded-lg font-sans ${data.isDimmed ? 'opacity-25' : 'opacity-100'} border-gray-200 dark:border-zinc-800`}
+      style={{ width: size.width, willChange: 'transform' }}
     >
       <div className="bg-[#d6e6fe] dark:bg-[#1b253b] px-4 py-3 border-b border-[#6CA7FF]/30 dark:border-[#6CA7FF]/20 rounded-t-lg flex items-center justify-between gap-3">
         <h3 className="font-bold text-gray-800 dark:text-zinc-100 text-sm truncate">{data.name}</h3>
@@ -82,4 +83,4 @@ export default function TableNode({ data }: { data: TableNodeData }) {
       </div>
     </div>
   );
-}
+});

@@ -54,11 +54,22 @@ type CreateTableStatement = Statement & {
   constraints?: SqlConstraint[];
 };
 
+type AlterTableStatement = Statement & {
+  table: SqlName;
+  changes?: {
+    type: string;
+    constraint?: SqlConstraint;
+  }[];
+};
+
 function normalizeSqlForDiagram(sql: string): string {
   return sql
+    .replace(/`/g, '"')
+    .replace(/CREATE\s+SCHEMA\s+[^;]+;/gi, '')
+    .replace(/COMMENT\s+'[^']*'/gi, '')
+    .replace(/\bENUM\s*\([^)]+\)/gi, 'text')
     .replace(/\bUSER-DEFINED\b/gi, 'text')
-    .replace(/\bARRAY\b/gi, 'text[]')
-    .replace(/\s+DEFAULT\s+(?:ARRAY\s*\[[^\n,)]*\](?:::[^\n,)]*)?|[^\n,)]*)/gi, '');
+    .replace(/\bARRAY\b/gi, 'text[]');
 }
 
 function getSqlName(value: SqlName | string | undefined): string {
@@ -188,6 +199,75 @@ export function parseSqlSchema(sql: string): TableDefinition[] {
           columns,
           foreignKeys
         });
+      }
+    }
+
+    // Second pass for alter table constraints
+    for (const stmt of ast) {
+      if (stmt.type === 'alter table') {
+        const alterTableStmt = stmt as AlterTableStatement;
+        const tableName = getSqlName(alterTableStmt.table);
+        
+        // Robust table lookup supporting both schema-prefixed and schema-less references
+        const table = tables.find(t => {
+          if (t.name === tableName) return true;
+          if (!tableName.includes('.') && t.name.endsWith(`.${tableName}`)) return true;
+          if (!t.name.includes('.') && tableName.endsWith(`.${t.name}`)) return true;
+          return false;
+        });
+        
+        if (table) {
+          for (const change of alterTableStmt.changes || []) {
+            if (change.type === 'add constraint' && change.constraint?.type === 'foreign key') {
+              const constraint = change.constraint;
+              const fromCol = constraint.localColumns?.[0]?.name;
+              const toTable = getSqlName(constraint.foreignTable);
+              const toCol = constraint.foreignColumns?.[0]?.name;
+              
+              if (fromCol && toTable && toCol) {
+                table.foreignKeys.push({
+                  fromColumn: fromCol,
+                  toTable,
+                  toColumn: toCol
+                });
+
+                const column = table.columns.find(col => col.name === fromCol);
+                if (column) {
+                  column.isForeignKey = true;
+                  column.references = {
+                    table: toTable,
+                    column: toCol
+                  };
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Normalization pass to resolve schema-less target tables in foreign keys
+    for (const table of tables) {
+      for (const fk of table.foreignKeys) {
+        const targetTable = tables.find(t => 
+          t.name === fk.toTable ||
+          (!fk.toTable.includes('.') && t.name.endsWith(`.${fk.toTable}`))
+        );
+        if (targetTable) {
+          fk.toTable = targetTable.name;
+        }
+      }
+      for (const col of table.columns) {
+        if (col.references) {
+          const ref = col.references;
+          const targetTable = tables.find(t =>
+            t.name === ref.table ||
+            (!ref.table.includes('.') && t.name.endsWith(`.${ref.table}`))
+          );
+          if (targetTable) {
+            ref.table = targetTable.name;
+          }
+        }
       }
     }
   } catch (error) {

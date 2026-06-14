@@ -19,7 +19,6 @@ type DiagramBounds = {
 
 const EXPORT_PADDING = 80;
 const BACKGROUND_COLOR = '#f8fafc';
-const GRID_COLOR = '#d7dde7';
 const NODE_BORDER = '#d1d5db';
 const NODE_HEADER = '#d6e6fe';
 const EDGE_COLOR = '#6CA7FF';
@@ -32,6 +31,41 @@ function escapeXml(value: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// Average glyph-width factors relative to font-size. Used to give every <text>
+// an explicit `textLength`, which stops Figma/FigJam from collapsing the text
+// box to ~0px (the cause of vertical, character-by-character wrapping on import).
+const SANS_WIDTH_FACTOR = 0.55;
+const MONO_WIDTH_FACTOR = 0.6;
+
+function estimateTextLength(value: string, fontSize: number, monospace = false): number {
+  const factor = monospace ? MONO_WIDTH_FACTOR : SANS_WIDTH_FACTOR;
+  return Math.max(1, Math.round(value.length * fontSize * factor));
+}
+
+type SvgTextOptions = {
+  x: number;
+  y: number;
+  fontSize: number;
+  fill: string;
+  text: string;
+  bold?: boolean;
+  monospace?: boolean;
+  // 'start' (default) anchors the text at x. 'end' keeps the text left-aligned
+  // (Figma-safe) but shifts x so the text visually ends at the given x.
+  align?: 'start' | 'end';
+};
+
+// Builds a Figma/FigJam-friendly <text> element. Critically it sets an explicit
+// `textLength` + `lengthAdjust` and avoids `text-anchor`, both of which keep the
+// importer from mis-measuring the text and wrapping it vertically.
+function svgText({ x, y, fontSize, fill, text, bold, monospace, align = 'start' }: SvgTextOptions): string {
+  const length = estimateTextLength(text, fontSize, monospace);
+  const drawX = align === 'end' ? x - length : x;
+  const fontFamily = monospace ? "'Courier New', Courier, monospace" : 'Arial, Helvetica, sans-serif';
+  const weight = bold ? ' font-weight="bold"' : '';
+  return `<text x="${drawX}" y="${y}" font-size="${fontSize}" font-family="${fontFamily}"${weight} fill="${fill}" textLength="${length}" lengthAdjust="spacingAndGlyphs" xml:space="preserve">${escapeXml(text)}</text>`;
 }
 
 function escapePdfText(value: string): string {
@@ -59,7 +93,7 @@ function getExportPosition(node: Node, bounds: DiagramBounds) {
   };
 }
 
-function getEdgePath(edge: Edge, nodesById: Map<string, Node>, bounds: DiagramBounds): string | null {
+function getEdgePath(edge: Edge, nodesById: Map<string, Node>, bounds: DiagramBounds, scale: number = 1): string | null {
   const sourceNode = nodesById.get(edge.source);
   const targetNode = nodesById.get(edge.target);
 
@@ -74,11 +108,11 @@ function getEdgePath(edge: Edge, nodesById: Map<string, Node>, bounds: DiagramBo
   const targetColumn = String(edge.targetHandle || '').replace(/-in$/, '');
   const sourcePosition = getExportPosition(sourceNode, bounds);
   const targetPosition = getExportPosition(targetNode, bounds);
-  const sourceX = sourcePosition.x + sourceSize.width;
-  const sourceY = sourcePosition.y + getColumnHandleY(sourceTable, sourceColumn);
-  const targetX = targetPosition.x;
-  const targetY = targetPosition.y + getColumnHandleY(targetTable, targetColumn);
-  const controlOffset = Math.max(80, Math.abs(targetX - sourceX) / 2);
+  const sourceX = (sourcePosition.x + sourceSize.width) * scale;
+  const sourceY = (sourcePosition.y + getColumnHandleY(sourceTable, sourceColumn)) * scale;
+  const targetX = targetPosition.x * scale;
+  const targetY = (targetPosition.y + getColumnHandleY(targetTable, targetColumn)) * scale;
+  const controlOffset = Math.max(80 * scale, Math.abs(targetX - sourceX) / 2);
 
   return `M ${sourceX} ${sourceY} C ${sourceX + controlOffset} ${sourceY}, ${targetX - controlOffset} ${targetY}, ${targetX} ${targetY}`;
 }
@@ -90,8 +124,9 @@ export function createDiagramSvg(nodes: Node[], edges: Edge[]): string {
 
   const bounds = getDiagramBounds(nodes);
   const nodesById = new Map(nodes.map(node => [node.id, node]));
+
   const edgeMarkup = edges
-    .map(edge => getEdgePath(edge, nodesById, bounds))
+    .map(edge => getEdgePath(edge, nodesById, bounds, 1))
     .filter(Boolean)
     .map(path => `<path d="${path}" fill="none" stroke="${EDGE_COLOR}" stroke-width="2.5" stroke-linecap="round"/>`)
     .join('');
@@ -100,28 +135,27 @@ export function createDiagramSvg(nodes: Node[], edges: Edge[]): string {
     const table = getNodeTable(node);
     const size = getDiagramNodeSize(node);
     const position = getExportPosition(node, bounds);
+
     const rows = table.columns.map((column, index) => {
       const rowY = NODE_HEADER_HEIGHT + (NODE_VERTICAL_PADDING / 2) + (index * NODE_ROW_HEIGHT);
       const textY = rowY + 21;
       const keyMarkup = column.isPrimaryKey
-        ? `<circle cx="18" cy="${rowY + 16}" r="5" fill="#facc15"/><text x="18" y="${rowY + 19}" font-size="7" font-weight="700" text-anchor="middle" fill="#713f12">K</text>`
+        ? `<circle cx="18" cy="${rowY + 16}" r="5" fill="#facc15"/>${svgText({ x: 14, y: rowY + 19, fontSize: 7, fill: '#713f12', text: 'K', bold: true })}`
         : '';
 
       return `
-        <g>
-          ${keyMarkup}
-          <text x="32" y="${textY}" font-size="12" font-weight="600" fill="${TEXT_COLOR}">${escapeXml(column.name)}</text>
-          <text x="${size.width - 16}" y="${textY}" font-size="10" font-family="monospace" text-anchor="end" fill="${MUTED_TEXT_COLOR}">${escapeXml(column.type.toUpperCase())}</text>
-        </g>
+        ${keyMarkup}
+        ${svgText({ x: 32, y: textY, fontSize: 12, fill: TEXT_COLOR, text: column.name, bold: true })}
+        ${svgText({ x: size.width - 16, y: textY, fontSize: 10, fill: MUTED_TEXT_COLOR, text: column.type.toUpperCase(), monospace: true, align: 'end' })}
       `;
     }).join('');
 
     return `
       <g transform="translate(${position.x}, ${position.y})">
-        <rect width="${size.width}" height="${size.height}" rx="10" fill="#ffffff" stroke="${NODE_BORDER}"/>
+        <rect width="${size.width}" height="${size.height}" rx="10" fill="#ffffff" stroke="${NODE_BORDER}" stroke-width="1"/>
         <rect width="${size.width}" height="${NODE_HEADER_HEIGHT}" rx="10" fill="${NODE_HEADER}"/>
-        <path d="M 0 ${NODE_HEADER_HEIGHT} H ${size.width}" stroke="${EDGE_COLOR}" stroke-opacity="0.3"/>
-        <text x="16" y="30" font-size="14" font-weight="700" fill="${TEXT_COLOR}">${escapeXml(table.name)}</text>
+        <path d="M 0 ${NODE_HEADER_HEIGHT} H ${size.width}" stroke="${EDGE_COLOR}" stroke-width="1" stroke-opacity="0.3"/>
+        ${svgText({ x: 16, y: 30, fontSize: 14, fill: TEXT_COLOR, text: table.name, bold: true })}
         ${rows}
       </g>
     `;
@@ -129,13 +163,7 @@ export function createDiagramSvg(nodes: Node[], edges: Edge[]): string {
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${bounds.width}" height="${bounds.height}" viewBox="0 0 ${bounds.width} ${bounds.height}">
-  <defs>
-    <pattern id="grid" width="16" height="16" patternUnits="userSpaceOnUse">
-      <circle cx="1" cy="1" r="1" fill="${GRID_COLOR}"/>
-    </pattern>
-  </defs>
   <rect width="100%" height="100%" fill="${BACKGROUND_COLOR}"/>
-  <rect width="100%" height="100%" fill="url(#grid)" opacity="0.65"/>
   ${edgeMarkup}
   ${nodeMarkup}
 </svg>`;
@@ -153,14 +181,59 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 async function downloadSvg(svg: string) {
-  downloadBlob(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), 'sql-diagram.svg');
+  const width = Number(svg.match(/width="(\d+)"/)?.[1] || 0);
+  const height = Number(svg.match(/height="(\d+)"/)?.[1] || 0);
+
+  // Render the vector SVG to a high-res Canvas, then embed the raster result
+  // back into an SVG as an <image>. This guarantees Figma/FigJam imports the
+  // diagram pixel-perfectly without any <text> measurement issues.
+  const scale = 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(width * scale);
+  canvas.height = Math.ceil(height * scale);
+
+  const ctx = canvas.getContext('2d');
+
+  if (!ctx) {
+    // Extremely rare — fall back to raw vector SVG
+    downloadBlob(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), 'sql-diagram.svg');
+    return;
+  }
+
+  const imageUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+  const image = new Image();
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('Could not render diagram for SVG export.'));
+      image.src = imageUrl;
+    });
+
+    ctx.fillStyle = BACKGROUND_COLOR;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(scale, scale);
+    ctx.drawImage(image, 0, 0);
+
+    const dataUrl = canvas.toDataURL('image/png');
+
+    // Wrap the raster in a minimal SVG so the file extension stays .svg and
+    // design tools (Figma, FigJam, Sketch) import it without issues.
+    const figmaSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <image width="${width}" height="${height}" href="${dataUrl}"/>
+</svg>`;
+
+    downloadBlob(new Blob([figmaSvg], { type: 'image/svg+xml;charset=utf-8' }), 'sql-diagram.svg');
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
 }
 
 async function downloadPng(svg: string) {
   const width = Number(svg.match(/width="(\d+)"/)?.[1] || 0);
   const height = Number(svg.match(/height="(\d+)"/)?.[1] || 0);
   const maxPixels = 24000000;
-  const scale = Math.min(2, Math.max(0.25, Math.sqrt(maxPixels / Math.max(width * height, 1))));
+  const scale = Math.min(2, Math.sqrt(maxPixels / Math.max(width * height, 1)));
   const imageUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
   const image = new Image();
 
@@ -211,12 +284,15 @@ function pdfColor(hex: string, operator: 'rg' | 'RG'): string {
 function createDiagramPdf(nodes: Node[], edges: Edge[]): Blob {
   const bounds = getDiagramBounds(nodes);
   const nodesById = new Map(nodes.map(node => [node.id, node]));
-  const pageWidth = bounds.width;
-  const pageHeight = bounds.height;
-  const y = (value: number) => pageHeight - value;
+  const MAX_PDF_DIMENSION = 14400;
+  const scale = Math.min(1, MAX_PDF_DIMENSION / Math.max(bounds.width, bounds.height));
+  const pageWidth = Math.max(1, Math.floor(bounds.width * scale));
+  const pageHeight = Math.max(1, Math.floor(bounds.height * scale));
+  const y = (value: number) => bounds.height - value;
   const commands: string[] = [
+    `${scale.toFixed(4)} 0 0 ${scale.toFixed(4)} 0 0 cm`,
     pdfColor(BACKGROUND_COLOR, 'rg'),
-    `0 0 ${pageWidth} ${pageHeight} re f`,
+    `0 0 ${bounds.width} ${bounds.height} re f`,
     '2 w',
     pdfColor(EDGE_COLOR, 'RG'),
   ];

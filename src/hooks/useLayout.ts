@@ -37,14 +37,14 @@ export function useLayout() {
       worker.addEventListener('message', handlePingResponse);
       worker.postMessage({ type: 'ping' });
 
-      // Fallback in 3000ms if worker doesn't respond (like in dev bundle errors)
+      // Fallback in 8000ms if worker doesn't respond (Next.js dev compilation can be slow)
       const pingTimeout = window.setTimeout(() => {
         if (!isWorkerActiveRef.current) {
           console.warn("Layout worker failed to respond to ping. Falling back to main thread.");
           worker.terminate();
           workerRef.current = null;
         }
-      }, 3000);
+      }, 8000);
 
       return () => {
         window.clearTimeout(pingTimeout);

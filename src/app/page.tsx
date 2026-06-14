@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -93,7 +93,22 @@ const spacingConfig = {
 };
 
 function EditorPageContent() {
-  const [sql, setSql] = useState(defaultSql);
+  const [sql, setSql] = useState(() => {
+    if (typeof window === 'undefined') {
+      return defaultSql;
+    }
+
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+      try {
+        return atob(decodeURIComponent(hash));
+      } catch {
+        console.warn('Failed to decode SQL from URL hash');
+      }
+    }
+
+    return localStorage.getItem('sql-schema') ?? defaultSql;
+  });
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const reactFlow = useReactFlow();
@@ -102,29 +117,13 @@ function EditorPageContent() {
   const [isExporting, setIsExporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const isDraggingRef = useRef(false);
 
   const [direction, setDirection] = useState<'RIGHT' | 'DOWN'>('RIGHT');
   const [spacing, setSpacing] = useState<'compact' | 'standard' | 'spacious'>('standard');
   const [algorithm, setAlgorithm] = useState<'layered' | 'force' | 'radial' | 'mrtree'>('layered');
 
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
-
-  // Load initial SQL from URL or localStorage
-  useEffect(() => {
-    const hash = window.location.hash.slice(1);
-    if (hash) {
-      try {
-        setSql(atob(decodeURIComponent(hash)));
-      } catch (e) {
-        console.warn('Failed to decode SQL from URL hash', e);
-      }
-    } else {
-      const savedSql = localStorage.getItem('sql-schema');
-      if (savedSql) {
-        setSql(savedSql);
-      }
-    }
-  }, []);
 
   // Save SQL to URL and localStorage on change with debounce
   useEffect(() => {
@@ -154,52 +153,73 @@ function EditorPageContent() {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
-  const connectedToHovered = new Set<string>();
-  if (hoveredNode) {
-    connectedToHovered.add(hoveredNode);
-    edges.forEach(edge => {
-      if (edge.source === hoveredNode) connectedToHovered.add(edge.target);
-      if (edge.target === hoveredNode) connectedToHovered.add(edge.source);
+  const hasSearch = Boolean(searchTerm.trim());
+  const hasHover = Boolean(hoveredNode);
+
+  // When there's no search or hover, skip all derived-data computation and pass
+  // nodes/edges straight through — this keeps drag smooth because React Flow's
+  // internal position updates don't trigger any expensive recomputation.
+  const visibleNodes = useMemo(() => {
+    if (!hasSearch && !hasHover) return nodes;
+
+    const connectedToHovered = new Set<string>();
+    if (hoveredNode) {
+      connectedToHovered.add(hoveredNode);
+      edges.forEach(edge => {
+        if (edge.source === hoveredNode) connectedToHovered.add(edge.target);
+        if (edge.target === hoveredNode) connectedToHovered.add(edge.source);
+      });
+    }
+
+    return nodes.map(node => {
+      const isMatch = matchesSearch(node, searchTerm);
+      const isDimmedBySearch = hasSearch && !isMatch;
+      const isDimmedByHover = hasHover && !connectedToHovered.has(node.id);
+
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          isDimmed: isDimmedBySearch || isDimmedByHover,
+          matchedColumns: getMatchedColumns(node, searchTerm),
+        },
+      };
     });
-  }
+  }, [nodes, edges, searchTerm, hoveredNode, hasSearch, hasHover]);
 
-  const visibleNodes = nodes.map(node => {
-    const isMatch = matchesSearch(node, searchTerm);
-    const isDimmedBySearch = Boolean(searchTerm.trim()) && !isMatch;
-    const isDimmedByHover = Boolean(hoveredNode) && !connectedToHovered.has(node.id);
+  const visibleEdges = useMemo(() => {
+    if (!hasSearch && !hasHover) return edges;
 
-    return {
-      ...node,
-      data: {
-        ...node.data,
-        isDimmed: isDimmedBySearch || isDimmedByHover,
-        matchedColumns: getMatchedColumns(node, searchTerm),
-      },
-    };
-  });
-  const visibleNodeIds = new Set(visibleNodes.filter(node => !node.data.isDimmed).map(node => node.id));
-  const visibleEdges = edges.map(edge => {
-    const isHoveredEdge = Boolean(hoveredNode && (edge.source === hoveredNode || edge.target === hoveredNode));
-    const isDimmedByHover = hoveredNode && !isHoveredEdge;
-    
-    return {
-      ...edge,
-      hidden: Boolean(searchTerm.trim()) && (!visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target)),
-      animated: isHoveredEdge,
-      style: {
-        ...edge.style,
-        opacity: isDimmedByHover ? 0.2 : 1,
-        strokeWidth: isHoveredEdge ? 3 : 2
-      }
-    };
-  });
-  const totalColumns = nodes.reduce((sum, node) => sum + (((node.data as { columns?: unknown[] }).columns?.length) || 0), 0);
-  const primaryKeys = nodes.reduce(
-    (sum, node) => sum + (((node.data as { columns?: { isPrimaryKey?: boolean }[] }).columns || []).filter(column => column.isPrimaryKey).length),
-    0
-  );
-  const connectedTableIds = new Set(edges.flatMap(edge => [edge.source, edge.target]));
-  const orphanTables = nodes.filter(node => !connectedTableIds.has(node.id)).length;
+    const visibleNodeIds = new Set(visibleNodes.filter(node => !node.data.isDimmed).map(node => node.id));
+
+    return edges.map(edge => {
+      const isHoveredEdge = hasHover && (edge.source === hoveredNode || edge.target === hoveredNode);
+      const isDimmedByHover = hasHover && !isHoveredEdge;
+
+      return {
+        ...edge,
+        hidden: hasSearch && (!visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target)),
+        animated: isHoveredEdge,
+        style: {
+          ...edge.style,
+          opacity: isDimmedByHover ? 0.2 : 1,
+          strokeWidth: isHoveredEdge ? 3 : 2
+        }
+      };
+    });
+  }, [edges, visibleNodes, hoveredNode, hasSearch, hasHover]);
+
+  const { totalColumns, primaryKeys, orphanTables } = useMemo(() => ({
+    totalColumns: nodes.reduce((sum, node) => sum + (((node.data as { columns?: unknown[] }).columns?.length) || 0), 0),
+    primaryKeys: nodes.reduce(
+      (sum, node) => sum + (((node.data as { columns?: { isPrimaryKey?: boolean }[] }).columns || []).filter(column => column.isPrimaryKey).length),
+      0
+    ),
+    orphanTables: (() => {
+      const connectedTableIds = new Set(edges.flatMap(edge => [edge.source, edge.target]));
+      return nodes.filter(node => !connectedTableIds.has(node.id)).length;
+    })(),
+  }), [nodes, edges]);
 
   const generateDiagram = useCallback(async () => {
     try {
@@ -443,7 +463,7 @@ function EditorPageContent() {
           </div>
         </div>
         
-        <div className="flex-1 relative border-t border-gray-200 dark:border-zinc-800 pt-2 bg-slate-900 dark:bg-[#08080a]">
+        <div className="flex-1 relative border-t border-gray-200 dark:border-zinc-800 bg-white dark:bg-[#08080a]">
           <Editor
             height="100%"
             defaultLanguage="sql"
@@ -475,8 +495,14 @@ function EditorPageContent() {
           edges={visibleEdges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
-          onNodeMouseEnter={(_, node) => setHoveredNode(node.id)}
-          onNodeMouseLeave={() => setHoveredNode(null)}
+          onNodeMouseEnter={(_, node) => {
+            if (!isDraggingRef.current) setHoveredNode(node.id);
+          }}
+          onNodeMouseLeave={() => {
+            if (!isDraggingRef.current) setHoveredNode(null);
+          }}
+          onNodeDragStart={() => { isDraggingRef.current = true; }}
+          onNodeDragStop={() => { isDraggingRef.current = false; setHoveredNode(null); }}
           nodeTypes={nodeTypes}
           fitView
           minZoom={0.1}
