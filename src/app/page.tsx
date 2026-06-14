@@ -101,9 +101,13 @@ function EditorPageContent() {
     const hash = window.location.hash.slice(1);
     if (hash) {
       try {
-        return atob(decodeURIComponent(hash));
+        return decodeURIComponent(escape(atob(decodeURIComponent(hash))));
       } catch {
-        console.warn('Failed to decode SQL from URL hash');
+        try {
+          return atob(decodeURIComponent(hash));
+        } catch {
+          console.warn('Failed to decode SQL from URL hash');
+        }
       }
     }
 
@@ -130,7 +134,12 @@ function EditorPageContent() {
     const timeout = setTimeout(() => {
       if (sql !== defaultSql) {
         localStorage.setItem('sql-schema', sql);
-        window.history.replaceState(null, '', '#' + encodeURIComponent(btoa(sql)));
+        try {
+          const encoded = btoa(unescape(encodeURIComponent(sql)));
+          window.history.replaceState(null, '', '#' + encodeURIComponent(encoded));
+        } catch (e) {
+          console.warn('Failed to encode SQL schema to base64', e);
+        }
       }
     }, 500);
     return () => clearTimeout(timeout);
@@ -222,11 +231,14 @@ function EditorPageContent() {
   }), [nodes, edges]);
 
   const generateDiagram = useCallback(async () => {
+    console.log("generateDiagram invoked, sql length:", sql.length);
     try {
       setError(null);
       const tables = parseSqlSchema(sql);
+      console.log("parseSqlSchema successful. Found tables:", tables.length);
 
       if (tables.length === 0) {
+        console.log("No tables found. Clearing canvas and setting error.");
         setNodes([]);
         setEdges([]);
         setError('No CREATE TABLE statements found in this SQL.');
@@ -276,12 +288,14 @@ function EditorPageContent() {
 
       // Run ELK layout in web worker
       const currentSpacing = spacingConfig[spacing];
+      console.log("Starting layout calculation...");
       const laidOutNodes = await layout(newNodes, newEdges, {
         direction,
         spacingNodeNode: currentSpacing.node,
         spacingNodeLayer: currentSpacing.layer,
         algorithm
       });
+      console.log("Layout calculation complete.");
       
       setNodes(laidOutNodes);
       setEdges(newEdges);
@@ -290,6 +304,7 @@ function EditorPageContent() {
         reactFlow.fitView({ padding: 0.2, duration: 300 });
       }, 0);
     } catch (err: unknown) {
+      console.error("generateDiagram caught error:", err);
       setError(getErrorMessage(err, 'Failed to parse SQL'));
     }
   }, [sql, layout, reactFlow, setNodes, setEdges, direction, spacing, algorithm]);
@@ -463,7 +478,7 @@ function EditorPageContent() {
           </div>
         </div>
         
-        <div className="flex-1 relative border-t border-gray-200 dark:border-zinc-800 bg-white dark:bg-[#08080a]">
+        <div className="flex-1 min-h-0 relative border-t border-gray-200 dark:border-zinc-800 bg-white dark:bg-[#08080a]">
           <Editor
             height="100%"
             defaultLanguage="sql"
